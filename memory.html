@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+        /* Spielfeldgröße */
+        const X_SIZE = 3;
+        const Y_SIZE = 3;
+
+        /* Diese Zahl bestimmt, wie die Karten gemischt werden (gleiche Zahl = gleich gemischt) */
+        const SEED = 2;
+
+        /* Hier sind die Paare + Lösungen definiert */
+        const pairs = [
+            {
+                "first": "cards/rot1.png",
+                "second": "cards/rot2.png",
+                "solution": "cards/rot-lösung.png"
+            },
+            {
+                "first": "cards/grün1.png",
+                "second": "cards/grün2.png",
+                "solution": "cards/grün-lösung.png"
+            },
+            {
+                "first": "cards/gelb1.png",
+                "second": "cards/gelb2.png",
+                "solution": "cards/gelb-lösung.png"
+            },
+            {
+                "first": "cards/blau1.png",
+                "second": "cards/blau2.png",
+                "solution": "cards/blau-lösung.png"
+            },
+        ];
+    </script>
+    <style>
+        :root {
+            /* Hintergrundfarbe */
+            --background-color: rgb(255, 255, 255);
+
+            /* Akzent-Farbe (Kartenhintergrund, aktives Team) */
+            --accent-color: rgb(230, 226, 221);
+            
+            /* Schriftart (die erste vorhandene wird genommen) */
+            --fonts: 'Gill Sans', 'Gill Sans MT', 'Calibri', 'Trebuchet MS', sans-serif;
+        }
+    </style>
+
+    <!-- Ab hier nichts mehr ändern -->
+    <style>
+        html { 
+            height: 100%;
+        }
+
+        body {
+            --fontSize: 6vh;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: var(--fonts);
+            font-size: var(--fontSize);
+
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+
+            background: var(--background-color);
+        }
+
+        #board {
+            flex-grow: 1;
+            display: grid;
+            grid-template: var(--fontSize) repeat(var(--ySize), 1fr) / var(--fontSize) repeat(var(--xSize), 1fr);
+        }
+
+        body::after {
+            user-select: none;
+            pointer-events: none;
+            content: '';
+            background: rgba(0, 0, 0, 0.8);
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity 0.3s ease-in;
+        }
+
+        body:has(.card.scaled)::after,
+        body:has(#solutionVideo.show)::after {
+            pointer-events: all;
+            opacity: 1;
+        }
+
+        .head {
+            text-align: center;
+            align-self: center;
+
+        }
+
+        .card {
+            --animationDuration: 500ms;
+            user-select: none;
+            position: relative;
+            perspective: 1000px;
+            transition: transform var(--animationDuration) ease-in-out, opacity 1s var(--animationDuration) ease-out, z-index var(--animationDuration) step-end;
+            z-index: 0;
+            transform: scale(1);
+        }
+
+
+        .card.scaled.turned {
+            transform: translate(calc(50vw - 50% - var(--x)), calc(50vh - 50% - var(--y))) scale(4);
+            z-index: 1;
+            transition: transform var(--animationDuration) ease-in-out, opacity 1s var(--animationDuration) ease-out, z-index var(--animationDuration) step-start;
+        }
+
+        .card:not(.found):hover,
+        .card:not(.found):focus-within {
+            cursor: pointer;
+        }
+
+        .card .front {
+            background: var(--accent-color);
+        }
+
+        .card .back {
+            background: var(--accent-color) url('images/rueckseite.jpg') repeat center;
+            background-size: contain;
+        }
+
+        .card[data-pair="undefined"] {
+            visibility: hidden;
+        }
+
+        .card.found[data-found-by="1"] {
+            --image-team: url('images/logo-links.png');
+        }
+
+        .card.found[data-found-by="2"] {
+            --image-team: url('images/logo-rechts.png');
+        }
+
+        .card.found[data-found-by] .back::after {
+            --background-opacity: 0.5;
+            content: '';
+            position: absolute;
+            background: rgba(from var(--accent-color) r g b / 0.5) var(--image-team) no-repeat center;
+            background-size: contain;
+            inset: 0;
+        }
+
+        .card .front,
+        .card .back {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: absolute;
+            backface-visibility: hidden;
+            inset: calc(var(--fontSize) / 4);
+            transition: transform 500ms ease-in-out, margin 500ms ease-in-out;
+            margin-inline: 0;
+        }
+
+        .card .front video {
+            object-fit: contain;
+        }
+
+        .card.scaled .front {
+            margin: -4vh -4vw;
+        }
+
+        .card:not(.turned) .front {
+            transform: rotateY(180deg);
+        }
+
+        .card.turned .back {
+            transform: rotateY(-180deg);
+        }
+
+        .card:not(.turned) .back,
+        .card.turned .front {
+            transform: rotateY(0);
+        }
+
+        #points {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            font-size: 15vh;
+            text-align: center;
+
+            margin-bottom: 2vh;
+
+            padding-inline: 3vh;
+        }
+
+        #points>* {
+            padding: 1vh 2vh;
+            margin-block: 1vh;
+        }
+
+        .team-name[data-team="1"] {
+            margin-right: auto;
+        }
+
+        .team-name[data-team="2"] {
+            margin-left: auto;
+        }
+
+        .team-points {
+            position: relative;
+        }
+
+        .team-points .point-animation {
+            position: absolute;
+            z-index: -1;
+            top: 50%;
+            left: 50%;
+            height: 100%;
+            transform: translate(-50%, -50%) scale(0);
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: var(--accent-color);
+            opacity: 1;
+            transition: none;
+            animation: scaleUp 500ms ease-in-out;
+        }
+
+        @keyframes scaleUp {
+            to {
+                opacity: 0;
+                transform: translate(-50%, 50%) scale(5);
+            }
+        }
+
+        .team-name {
+            background: transparent;
+            transition: border-color 300ms ease-in-out, background-color 300ms ease-in-out;
+            border-radius: 3vh;
+            border: 0.2vh solid transparent;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #points[data-active-team="1"] .team-name[data-team="1"],
+        #points[data-active-team="2"] .team-name[data-team="2"] {
+            border-color: rgba(0, 0, 0, 0.5);
+            background-color: var(--accent-color);
+        }
+
+
+        #solutionVideo {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            transition: transform 0.8s ease-in-out;
+            transform: translateY(100%) scale(1%);
+            display: flex;
+            align-items: stretch;
+            justify-content: stretch;
+        }
+
+
+        #solutionVideo.show {
+            transform: scale(100%);
+        }
+
+        #solutionVideo video {
+            position: absolute;
+            padding: 5vmin;
+            box-sizing: border-box;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+    </style>
+    <title>Memory</title>
+</head>
+
+<body>
+    <template id="cardTemplate">
+        <div class="card">
+            <div class="front"></div>
+            <div class="back"></div>
+        </div>
+    </template>
+    <!-- <h1>Memory</h1> -->
+
+    <div id="points">
+        <div class="team-name" data-team="1"><img src="images/logo-links.png" style="height: 15vh" /></div>
+        <span class="team-points" data-team="1">
+            <span class="value">0</span>
+        </span>
+        <span>:</span>
+        <span class="team-points" data-team="2">
+            <span class="value">0</span></span>
+        <div class="team-name" data-team="2"><img src="images/logo-rechts.png" style="height: 15vh" /></div>
+    </div>
+    <div id="solutionVideo"></div>
+    <div id="board">
+    </div>
+
+    <script>
+        const rand = mulberry32(SEED);
+
+        const board = document.getElementById("board");
+        const points = document.getElementById("points");
+        const cardTemplate = document.getElementById("cardTemplate");
+        const solutionVideo = document.getElementById("solutionVideo");
+        const cards = new Array(X_SIZE * Y_SIZE).fill({});
+
+        const solutionVideos = {};
+
+        board.style.setProperty("--xSize", X_SIZE);
+        board.style.setProperty("--ySize", Y_SIZE);
+
+        let currentTeam = 1;
+
+        for (let i = 0; i < X_SIZE * Y_SIZE / 2; i++) {
+            if (i >= pairs.length) {
+                break;
+            }
+            cards[i * 2] = { media: pairs[i].first, pair: i };
+            cards[i * 2 + 1] = { media: pairs[i].second, pair: i };
+            solutionVideos[i] = pairs[i].solution;
+        }
+
+        function loadState() {
+            try {
+                const state = JSON.parse(localStorage.getItem("memory_state"));
+
+                if (typeof state === 'object') {
+                    currentTeam = state.currentTeam || 1;
+
+                    [...document.querySelectorAll('.team-points .value')].forEach((n, i) => n.innerText = "" + (state.points?.[i] || 0));
+
+                    const entries = Object.entries(state.foundPairs || {});
+                    for (let e of entries) {
+                        document.querySelectorAll('.card[data-pair="' + e[0] + '"]').forEach(n => {
+                            n.setAttribute("data-found-by", e[1]);
+                            n.classList.add("found");
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                /* Cannot load state */
+            }
+        }
+
+        function saveState() {
+            const state = {
+                currentTeam: currentTeam,
+                points: [...document.querySelectorAll('.team-points .value')].map(n => parseInt(n.innerText)),
+                foundPairs: Object.fromEntries([...document.querySelectorAll('.card.found')].map(n => [n.getAttribute("data-pair"), n.getAttribute("data-found-by")]))
+            };
+            localStorage.setItem("memory_state", JSON.stringify(state));
+        }
+
+        shuffleArray(cards);
+
+        const corner = document.createElement("div");
+        board.appendChild(corner);
+        for (let x = 0; x < X_SIZE; x++) {
+            const head = document.createElement("div");
+            head.classList.add("head");
+            head.innerText = `${(String.fromCharCode(x + 65))}`;
+            board.appendChild(head);
+        }
+
+        for (let y = 0; y < Y_SIZE; y++) {
+            const head = document.createElement("div");
+            head.innerText = `${y + 1}`;
+            head.classList.add("head");
+            board.appendChild(head);
+            for (let x = 0; x < X_SIZE; x++) {
+                const index = y * X_SIZE + x;
+                const card = cards[index];
+                const cardDiv = cardTemplate.content.cloneNode(true).querySelector("*");
+                cardDiv.addEventListener("click", () => turnCard(cardDiv));
+                cardDiv.setAttribute("data-index", index);
+                cardDiv.setAttribute("data-pair", card.pair);
+                board.appendChild(cardDiv);
+            }
+        }
+        setCardPositions();
+
+        loadState();
+        setTeam(currentTeam);
+
+        function setMedia(video, src) {
+            if (src && /\.(jpe?g|png|svg)$/i.test(src)) {
+                video.poster = src;
+            } else {
+                video.src = src;
+            }
+        }
+
+        function turnCard(e) {
+            const card = cards[e.getAttribute("data-index")];
+
+            if (e.classList.contains("found")) { showSolutionVideo(card.pair); return; }
+
+            if (!e.classList.contains("turned")) {
+                const turnedCards = document.querySelectorAll(".card.turned");
+                if (turnedCards.length >= 2) { turnOverAll(); return; }
+
+                turnedCards.forEach(c => c.classList.remove("scaled"));
+
+                e.classList.add("turned", "scaled");
+
+                /* Pause all existing videos */
+                document.querySelectorAll("video").forEach(v => v.pause());
+
+                const video = document.createElement("video");
+                setMedia(video, card.media);
+                video.setAttribute("width", "100%");
+                video.setAttribute("height", "100%");
+                video.load();
+
+                setTimeout(() => video.play(), 500);
+
+                // video.onended = () => e.classList.remove("scaled");
+
+                const front = e.querySelector(".front");
+                front.replaceChildren(video);
+            } else {
+                e.classList.remove("scaled");
+                const video = e.querySelector("video");
+                video.pause();
+            }
+        }
+
+        solutionVideo.onclick = () => {
+            solutionVideo.classList.remove("show");
+            solutionVideo.querySelector("video").pause();
+            setTimeout(() => solutionVideo.innerHTML = '', 1000);
+        };
+
+        function showSolutionVideo(pair, delay) {
+            if (!solutionVideos[pair]) {
+                return;
+            }
+            
+            const video = document.createElement("video");
+            setMedia(video, solutionVideos[pair]);            
+            video.setAttribute("width", "100%");
+            video.setAttribute("height", "100%");
+            video.load();
+
+            solutionVideo.replaceChildren(video);
+
+            setTimeout(() => {
+                solutionVideo.classList.add("show");
+                setTimeout(() => video.play(), 1000);
+            }, delay || 0);
+
+        }
+
+        function reset() {
+            document.querySelectorAll(".team-points .value").forEach(n => n.innerText = "0");
+            document.querySelectorAll(".card").forEach(c => {
+                c.classList.remove("found", "turned");
+                c.removeAttribute("data-found-by");
+            });
+
+            saveState();
+        }
+
+        function turnOverAll() {
+            let foundCards = 0;
+
+            let foundPair = -1;
+            document.querySelectorAll(".card.turned").forEach(c => {
+                let pair = c.getAttribute("data-pair");
+                if (document.querySelectorAll(`.card.turned[data-pair="${pair}"]`).length > 1) {
+                    c.classList.add("found");
+                    c.setAttribute("data-found-by", currentTeam);
+                    foundCards++;
+                    foundPair = pair;
+                }
+            });
+
+            addPoints(foundCards / 2);
+
+            document.querySelectorAll(".card.turned").forEach(c => {
+                c.classList.remove("turned", "scaled");
+                const video = c.querySelector("video");
+                video.pause();
+                setTimeout(() => video.remove(), 1000);
+            });
+
+            if (foundPair >= 0) {
+                showSolutionVideo(foundPair, 500);
+            }
+        }
+
+        function addPoints(points) {
+            let pointsDiv = document.querySelector('.team-points[data-team="' + currentTeam + '"]');
+            let valueSpan = pointsDiv.querySelector('.value');
+            let currentPoints = parseInt(valueSpan.innerText);
+            valueSpan.innerText = Math.max(0, currentPoints + points);
+
+            if (points != 0) {
+                const animationDiv = document.createElement('div');
+                animationDiv.classList.add("point-animation");
+                pointsDiv.appendChild(animationDiv);
+                setTimeout(() => pointsDiv.removeChild(animationDiv), 1000);
+            }
+
+            saveState();
+        }
+
+        function setTeam(team) {
+            currentTeam = team;
+            points.setAttribute("data-active-team", team);
+            saveState();
+        }
+
+        window.onkeydown = e => {
+            if (e.code === 'Space') {
+                turnOverAll();
+            } else if (e.code === 'Escape') {
+                turnOverAll();
+            } else if (e.code === 'Digit1') {
+                setTeam(1);
+            } else if (e.code === 'Digit2') {
+                setTeam(2);
+            } else if (e.key === '+') {
+                addPoints(1);
+            } else if (e.key === '-') {
+                addPoints(-1);
+            } else if (e.key === 'r' && !e.metaKey) {
+                if (confirm("Reset?")) {
+                    reset();
+                }
+            } else if (e.key === '?') {
+                alert("Memory\n==================\n1/2 - Aktives Team einstellen\n-/+ - Manuelle Punktevergabe\nKlick - Karte umdrehen / Lösung nochmal zeigen\nLeertaste/Esc - Alle Karten wieder verdecken (evtl. Punkt vergeben + Lösung zeigen)\nR - Reset");
+            }
+        };
+
+        window.onresize = setCardPositions;
+
+        function setCardPositions() {
+            document.querySelectorAll(".card").forEach(c => {
+                var parentRect = c.offsetParent.getBoundingClientRect();
+                var offsetLeft = parentRect.left + c.offsetLeft;
+                var offsetTop = parentRect.top + c.offsetTop;
+                c.style.setProperty("--x", offsetLeft + "px");
+                c.style.setProperty("--y", offsetTop + "px");
+            });
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(rand() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function mulberry32(a) {
+            return function () {
+                var t = a += 0x6D2B79F5;
+                t = Math.imul(t ^ t >>> 15, t | 1);
+                t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+                return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+        }
+    </script>
+</body>
+</html>
